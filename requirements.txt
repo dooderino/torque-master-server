@@ -1,2 +1,2 @@
-numpy==1.23.4
+numpy
 bitstream==2.6.0.2
