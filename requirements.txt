@@ -1,3 +1,2 @@
-numpy==1.23.4
-ConfigParser
-bitstream==2.6.0.2
+construct==2.10.68
+ConfigParser==5.3.0
