@@ -25,7 +25,7 @@ httpd = socketserver.TCPServer(('', port), Handler)
 def _xprint(*args, **kwargs):
     """Wrapper function around print() that prepends the current thread name"""
     print("[", current_thread().name, "]",
-          " ".join(map(str, args)), **kwargs, file=stderr)
+          " ".join(map(str, args)), **kwargs)
 
 def serve_tcp_forever(httpd):
     with httpd:  # to make sure httpd.server_close is called
