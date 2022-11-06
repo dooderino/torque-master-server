@@ -6,7 +6,7 @@ from datetime import *
 import logging
 from construct import *
 
-localIP     = "127.0.0.1"
+localIP     = "0.0.0.0"
 localPort   = 20001
 bufferSize  = 1024
 
