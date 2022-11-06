@@ -9,6 +9,7 @@ import os
 import http.server
 import socketserver
 from http import HTTPStatus
+from threading import Thread, current_thread
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -20,7 +21,21 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 port = int(os.getenv('PORT', 8080))
 print('Listening on port %s' % (port))
 httpd = socketserver.TCPServer(('', port), Handler)
-httpd.serve_forever()
+
+def _xprint(*args, **kwargs):
+    """Wrapper function around print() that prepends the current thread name"""
+    print("[", current_thread().name, "]",
+          " ".join(map(str, args)), **kwargs, file=stderr)
+
+def serve_forever(httpd):
+    with httpd:  # to make sure httpd.server_close is called
+        _xprint("server about to serve forever (infinite request loop)")
+        httpd.serve_forever()
+        _xprint("server left infinite request loop")
+        
+thread = Thread(target=serve_forever, args=(httpd, ))
+thread.setDaemon(true)
+thread.start()
 
 localIP     = "0.0.0.0"
 localPort   = 20001
