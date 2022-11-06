@@ -27,15 +27,14 @@ def _xprint(*args, **kwargs):
     print("[", current_thread().name, "]",
           " ".join(map(str, args)), **kwargs, file=stderr)
 
-def serve_forever(httpd):
+def serve_tcp_forever(httpd):
     with httpd:  # to make sure httpd.server_close is called
         _xprint("server about to serve forever (infinite request loop)")
         httpd.serve_forever()
         _xprint("server left infinite request loop")
         
-thread = Thread(target=serve_forever, args=(httpd, ))
-thread.setDaemon(true)
-thread.start()
+tcp_thread = Thread(target=serve_tcp_forever, args=(httpd, ))
+tcp_thread.start()
 
 localIP     = "0.0.0.0"
 localPort   = 20001
@@ -127,12 +126,13 @@ class Sessions(object):
         
         return new_session
 
-def process_message(message):
-    #stream = BitStream(message)
-    #packet_type = stream.read(uint8, 1).item(0)
+def process_message_from_client(message_from_client):
+    message = message_from_client[0]
+    address = message_from_client[1]
     packet_type= Byte.parse(message[:1]) 
     print("Packet type: ", packet_type)
     process_packet_type(packet_type, message)
+    return None
 
 def process_packet_type(packet_type, stream):
     if packet_type == PacketTypes.MasterServerGameTypesRequest:
@@ -236,18 +236,14 @@ sessions = Sessions()
 
 print("Master server up and listening")
 
-while(True):
-    bytesAddressPair = UDPServerSocket.recvfrom(bufferSize)
-    message = bytesAddressPair[0]
-    address = bytesAddressPair[1]
-
-    process_message(message)
-
-    #clientMsg = "Message from Client:{}".format(message)
-    clientIP  = "Client IP Address:{}".format(address)
+def serve_udp_forever(udp_socket, session_manager):
+    message_from_client = udp_socket.recvfrom(bufferSize)  
+    address = message_from_client[1]
     
-    #print(clientMsg)
-    print(clientIP)
+    message_to_client = process_message_from_client(message_from_client)    
 
-    # Sending a reply to client
-    #UDPServerSocket.sendto(bytesToSend, address)
+    if message_to_client != None:
+        udp_socket.sendto(message_to_client, address)
+        
+udp_thread = Thread(target=serve_udp_forever, args=(UDPServerSocket, sessions, ))
+udp_thread.start()
