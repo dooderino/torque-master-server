@@ -5,6 +5,22 @@ from typing import NamedTuple, List
 from datetime import *
 import logging
 from construct import *
+import os
+import http.server
+import socketserver
+from http import HTTPStatus
+
+
+class Handler(http.server.SimpleHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(HTTPStatus.OK)
+        self.end_headers()
+
+
+port = int(os.getenv('PORT', 8080))
+print('Listening on port %s' % (port))
+httpd = socketserver.TCPServer(('', port), Handler)
+httpd.serve_forever()
 
 localIP     = "0.0.0.0"
 localPort   = 20001
