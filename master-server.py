@@ -34,7 +34,6 @@ def serve_tcp_forever(httpd):
         _xprint("server left infinite request loop")
         
 tcp_thread = Thread(target=serve_tcp_forever, args=(httpd, ))
-tcp_thread.start()
 
 localIP     = "0.0.0.0"
 localPort   = 20001
@@ -240,6 +239,8 @@ def serve_udp_forever(udp_socket, session_manager):
     while True:
         message_from_client = udp_socket.recvfrom(bufferSize)  
         address = message_from_client[1]
+
+        print(message_from_client)
         
         message_to_client = process_message_from_client(message_from_client)    
 
@@ -248,3 +249,6 @@ def serve_udp_forever(udp_socket, session_manager):
         
 udp_thread = Thread(target=serve_udp_forever, args=(UDPServerSocket, sessions, ))
 udp_thread.start()
+
+
+tcp_thread.start()
