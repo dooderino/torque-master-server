@@ -237,13 +237,14 @@ sessions = Sessions()
 print("Master server up and listening")
 
 def serve_udp_forever(udp_socket, session_manager):
-    message_from_client = udp_socket.recvfrom(bufferSize)  
-    address = message_from_client[1]
-    
-    message_to_client = process_message_from_client(message_from_client)    
+    while True:
+        message_from_client = udp_socket.recvfrom(bufferSize)  
+        address = message_from_client[1]
+        
+        message_to_client = process_message_from_client(message_from_client)    
 
-    if message_to_client != None:
-        udp_socket.sendto(message_to_client, address)
+        if message_to_client != None:
+            udp_socket.sendto(message_to_client, address)
         
 udp_thread = Thread(target=serve_udp_forever, args=(UDPServerSocket, sessions, ))
 udp_thread.start()
