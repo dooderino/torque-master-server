@@ -1,5 +1,4 @@
 import socket
-#from numpy import *
 from enum import Enum
 from typing import NamedTuple, List
 from datetime import *
@@ -35,9 +34,6 @@ def serve_tcp_forever(httpd):
         
 tcp_thread = Thread(target=serve_tcp_forever, args=(httpd, ))
 
-localIP     = "0.0.0.0"
-localPort   = 20001
-bufferSize  = 1024
 
 class PacketTypes(Enum):
     MasterServerGameTypesRequest  = 2
@@ -228,6 +224,8 @@ def process_game_heartbeat(stream):
     result = format.parse(stream)
     print(result)
 
+localIP     = "0.0.0.0"
+localPort   = 20001
 UDPServerSocket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
 UDPServerSocket.bind((localIP, localPort))
 
@@ -236,16 +234,20 @@ sessions = Sessions()
 print("Master server up and listening")
 
 def serve_udp_forever(udp_socket, session_manager):
-    while True:
-        message_from_client = udp_socket.recvfrom(bufferSize)  
-        address = message_from_client[1]
+    with udp_socket:
+        bufferSize  = 1024
+        _xprint("UDP server about to serve forever (infinite request loop)")
+        while True:
+            message_from_client = udp_socket.recvfrom(bufferSize)  
+            address = message_from_client[1]
 
-        print(message_from_client)
-        
-        message_to_client = process_message_from_client(message_from_client)    
+            print(message_from_client)
+            
+            message_to_client = process_message_from_client(message_from_client)    
 
-        if message_to_client != None:
-            udp_socket.sendto(message_to_client, address)
+            if message_to_client != None:
+                udp_socket.sendto(message_to_client, address)
+        _xprint("UDP server left infinite request loop")
         
 udp_thread = Thread(target=serve_udp_forever, args=(UDPServerSocket, sessions, ))
 udp_thread.start()
