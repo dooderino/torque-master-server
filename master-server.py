@@ -1,6 +1,6 @@
 import socket
+from numpy import *
 from enum import Enum
-from typing import NamedTuple, List
 from datetime import *
 import logging
 from construct import *
@@ -9,6 +9,7 @@ import http.server
 import socketserver
 from http import HTTPStatus
 from threading import Thread, current_thread
+from typing import NamedTuple, List
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -34,6 +35,9 @@ def serve_tcp_forever(httpd):
         
 tcp_thread = Thread(target=serve_tcp_forever, args=(httpd, ))
 
+class IPAddress(NamedTuple):
+    Address: str
+    Port: int
 
 class PacketTypes(Enum):
     MasterServerGameTypesRequest  = 2
@@ -59,12 +63,9 @@ class PacketTypes(Enum):
     MasterServerChallenge            = 42
     MasterServerExtendedListRequest  = 44
 
-class IPAddress(NamedTuple):
-    Address: str
-    Port: Int32sb
 
 class ServerInfo(NamedTuple):
-    IPAddress: IPAddress
+    Address: IPAddress
     GameType: str
     MissionType: str
     MaxPlayers: Int32sb
@@ -77,8 +78,8 @@ class ServerInfo(NamedTuple):
     PlayerList: List[int] = []
     
 def Session(NamedTuple):
-    SessionID: uint16
-    Key: uint16
+    SessionID: Int32sb
+    Key: Int32sb
     CreatedDate: timedelta
     Heartbeat: timedelta
     
@@ -121,11 +122,10 @@ class Sessions(object):
         
         return new_session
 
-def process_message_from_client(message_from_client):
+def process_message_from_client(message_from_client, session_manager):
     message = message_from_client[0]
-    address = message_from_client[1]
+    address = IPAddress(Address= message_from_client[1][0], Port= message_from_client[1][1])
     packet_type= Byte.parse(message[:1]) 
-    print("Packet type: ", packet_type)
     process_packet_type(packet_type, message)
     return None
 
@@ -191,12 +191,26 @@ def process_master_server_list_request(stream):
     )
 
     mtl = mission_type_length.parse(stream)
+
+    session_key= Struct(
+        Padding(2),
+        "session_key" / Int32sn,
+    )
+
+    sk = session_key.parse(stream)
+    print(sk)
+    session_key = sk.session_key
+    
+    left_mask = 0xFFFF0000
+    right_mask = 0x0000FFFF
+    
+    session = Int32sb.parse(Int32sb.build((session_key & left_mask) >> 16))
+    key = Int32sb.parse(Int32sb.build(session_key & right_mask))
     
     format = Struct(
         "packet_type" / Int8ub, 
         "flags" / Int8ub,       
-        "session" / Int16ub,    
-        "key" / Int16ub,        
+        "session_key" / Int32sn,            
         "pad" / Int8ub,         
         "game_type_length" / Int8ub, 
         "game_type" / PaddedString(gtl.length, "ascii"),
@@ -211,15 +225,27 @@ def process_master_server_list_request(stream):
         "buddy_count" / Int8ub,
     )
 
-    result = format.parse(stream)
-    print(result)
+    packet = format.parse(stream)
 
 def process_game_heartbeat(stream):
+    session_key= Struct(
+        Padding(2),
+        "session_key" / Int32sn,
+    )
+
+    sk = session_key.parse(stream)
+    session_key = sk.session_key
+    
+    left_mask = 0xFFFF0000
+    right_mask = 0x0000FFFF
+    
+    session = Int32sb.parse(Int32sb.build((session_key & left_mask) >> 16))
+    key = Int32sb.parse(Int32sb.build(session_key & right_mask))
+    
     format = Struct(
         "packet_type" / Int8ub,
         "flags" / Int8ub,
-        "session" / Int16ub,
-        "key" / Int16ub,
+        "session_key" / Int16sn,
     )
     result = format.parse(stream)
     print(result)
@@ -229,27 +255,26 @@ localPort   = 20001
 UDPServerSocket = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
 UDPServerSocket.bind((localIP, localPort))
 
-sessions = Sessions()
-
 print("Master server up and listening")
 
-def serve_udp_forever(udp_socket, session_manager):
+def serve_udp_forever(udp_socket):
     with udp_socket:
         bufferSize  = 1024
+        sessions = Sessions()
         _xprint("UDP server about to serve forever (infinite request loop)")
         while True:
             message_from_client = udp_socket.recvfrom(bufferSize)  
-            address = message_from_client[1]
+            ip_address = message_from_client[1]
 
             print(message_from_client)
             
-            message_to_client = process_message_from_client(message_from_client)    
+            message_to_client = process_message_from_client(message_from_client, sessions)    
 
             if message_to_client != None:
-                udp_socket.sendto(message_to_client, address)
+                udp_socket.sendto(message_to_client, ip_address)
         _xprint("UDP server left infinite request loop")
         
-udp_thread = Thread(target=serve_udp_forever, args=(UDPServerSocket, sessions, ))
+udp_thread = Thread(target=serve_udp_forever, args=(UDPServerSocket, ))
 udp_thread.start()
 
 
