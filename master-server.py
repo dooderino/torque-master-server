@@ -1,15 +1,17 @@
-import socket
-from numpy import *
-from enum import Enum
-from datetime import *
-import logging
-from construct import *
-import os
 import http.server
+import logging
+import os
+import socket
 import socketserver
+from datetime import *
+from enum import Enum
 from http import HTTPStatus
 from threading import Thread, current_thread
-from typing import NamedTuple, List
+from typing import List, NamedTuple
+
+from construct import *
+from numpy import *
+from recordclass import RecordClass, recordclass
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -35,9 +37,37 @@ def serve_tcp_forever(httpd):
         
 tcp_thread = Thread(target=serve_tcp_forever, args=(httpd, ))
 
-class IPAddress(NamedTuple):
-    Address: str
-    Port: int
+IPAddress = Struct(
+    "address" / CString("utf8"),
+    "port" / Int16ub
+)
+
+MasterServerListResponsePacket = Struct(
+    "packet_type" / Int8ub, 
+    "flags" / Int8ub,       
+    "session_key" / Int32sn,            
+    "packet_index" / Int16ub,
+    "packet_total" / Int16ub,
+    "server_count" / Int16ub,
+    "type" / Byte,
+    "ip" / IPAddress,
+)
+
+
+
+#class ServerInfo(NamedTuple):
+#    Address: IPAddress
+#    GameType: str
+#    MissionType: str
+#    MaxPlayers: Int32sb
+#    Region: Int32ub
+#    Version: Int32ub
+#    Flags: Int16ub
+#    BotCount: Int16ub
+#    CPUSpeed: Int32ub
+#    PlayerCount: Int32sb
+#    PlayerList: List[int] = []
+ 
 
 class PacketTypes(Enum):
     MasterServerGameTypesRequest  = 2
@@ -63,31 +93,18 @@ class PacketTypes(Enum):
     MasterServerChallenge            = 42
     MasterServerExtendedListRequest  = 44
 
-
-class ServerInfo(NamedTuple):
-    Address: IPAddress
-    GameType: str
-    MissionType: str
-    MaxPlayers: Int32sb
-    Region: Int32ub
-    Version: Int32ub
-    Flags: Int16ub
-    BotCount: Int16ub
-    CPUSpeed: Int32ub
-    PlayerCount: Int32sb
-    PlayerList: List[int] = []
-    
-def Session(NamedTuple):
-    SessionID: Int32sb
-    Key: Int32sb
+class Session(RecordClass):
+    SessionID: uintc
+    Key: uintc
     CreatedDate: timedelta
     Heartbeat: timedelta
     
-class Sessions(object):
+class Sessions:
     def __init__(self) -> None:
         self.sessions = {}
         self.creation_time= datetime.now()
         self.logger = logging.getLogger('Sessions')
+        self.logger.setLevel('INFO')
         
     def has_session(self, ip_address):
         return ip_address in self.sessions
@@ -110,33 +127,32 @@ class Sessions(object):
         uint16_max = iinfo(uint16).max
         
         new_session = Session(
-            SessionID = random.randint(uint16_min, uint16_max, dtype=uint16),
-            Key = random.randint(uint16_min, uint16_max, dtype=uint16),
+            SessionID = random.randint(uint16_min, uint16_max, dtype=uintc),
+            Key = random.randint(uint16_min, uint16_max, dtype=uintc),
             CreatedDate = self.creation_time - datetime.now(),
             Heartbeat = self.creation_time - datetime.now()
         )
-        
-        self.logger.info("{addr} Session: {id}, Key: {key}".format(addr=ip_address, id=new_session.SessionID, key=new_session.Key))
 
         self.sessions[ip_address] = new_session
         
         return new_session
 
-def process_message_from_client(message_from_client, session_manager):
+def process_message_from_client(ip_address, message_from_client, session_manager):
     message = message_from_client[0]
-    address = IPAddress(Address= message_from_client[1][0], Port= message_from_client[1][1])
+    print(message_from_client[1])
+    # address = IPAddress.build(dict(address= message_from_client[1][0], port= message_from_client[1][1]))
     packet_type= Byte.parse(message[:1]) 
-    process_packet_type(packet_type, message)
+    process_packet_type(packet_type, ip_address, message, session_manager)
     return None
 
-def process_packet_type(packet_type, stream):
+def process_packet_type(packet_type, ip_address, stream, session_manager):
     if packet_type == PacketTypes.MasterServerGameTypesRequest:
         print("Received MasterServerGameTypesRequest packet...")
     if packet_type == PacketTypes.MasterServerGameTypesResponse:
         print("Received MasterServerGameTypesResponse packet...")
     if packet_type == PacketTypes.MasterServerListRequest:
         print("Received MasterServerListRequest packet...")
-        process_master_server_list_request(stream)
+        process_master_server_list_request(ip_address, stream, session_manager)
     if packet_type == PacketTypes.MasterServerListResponse:
         print("Received MasterServerListResponse packet...")
     if packet_type == PacketTypes.GameMasterInfoRequest:
@@ -153,7 +169,7 @@ def process_packet_type(packet_type, stream):
         print("Received GameInfoResponse packet...")
     if packet_type == PacketTypes.GameHeartbeat:
         print("Received GameHeartbeat packet...")
-        process_game_heartbeat(stream)
+        process_game_heartbeat(ip_address, stream, session_manager)
     if packet_type == PacketTypes.GGCPacket:
         print("Received GGCPacket packet...")
     if packet_type == PacketTypes.ConnectChallengeRequest:
@@ -177,7 +193,7 @@ def process_packet_type(packet_type, stream):
     if packet_type == PacketTypes.MasterServerExtendedListRequest:
         print("Received MasterServerExtendedListRequest packet...")
         
-def process_master_server_list_request(stream):
+def process_master_server_list_request(ip_address, stream, session_manager):
     game_type_length = Struct(
         Padding(7),
         "length" / Int8ub,
@@ -198,7 +214,6 @@ def process_master_server_list_request(stream):
     )
 
     sk = session_key.parse(stream)
-    print(sk)
     session_key = sk.session_key
     
     left_mask = 0xFFFF0000
@@ -226,14 +241,23 @@ def process_master_server_list_request(stream):
     )
 
     packet = format.parse(stream)
+    print("Packet Type: ", packet.packet_type)
+    print("Flags: ", packet.flags)
+    print("Session Key: ", packet.session_key)
+    print("Session: ", session)
+    print("Key: ", key)
+    print("Game Type: ", packet.game_type)
+    print("Mission Type: ", packet.mission_type)
 
-def process_game_heartbeat(stream):
+
+def get_session_key_pair(stream, pad_bytes= 1):
     session_key= Struct(
-        Padding(2),
+        Padding(pad_bytes),
         "session_key" / Int32sn,
     )
 
     sk = session_key.parse(stream)
+    print("SK: ", sk)
     session_key = sk.session_key
     
     left_mask = 0xFFFF0000
@@ -241,14 +265,39 @@ def process_game_heartbeat(stream):
     
     session = Int32sb.parse(Int32sb.build((session_key & left_mask) >> 16))
     key = Int32sb.parse(Int32sb.build(session_key & right_mask))
+
+    return (session, key)
+
+
+def process_game_heartbeat(ip_address, stream, session_manager):
     
-    format = Struct(
-        "packet_type" / Int8ub,
-        "flags" / Int8ub,
-        "session_key" / Int16sn,
-    )
-    result = format.parse(stream)
-    print(result)
+    if not session_manager.heartbeat(ip_address):
+        session_manager.create_session(ip_address)
+
+    session_key_pair= get_session_key_pair(stream, pad_bytes=2)
+
+    print(session_key_pair)
+    
+    #session_key= Struct(
+    #    Padding(2),
+    #    "session_key" / Int32sn,
+    #)
+
+    #sk = session_key.parse(stream)
+    #session_key = sk.session_key
+    
+    #left_mask = 0xFFFF0000
+    #right_mask = 0x0000FFFF
+    
+    #session = Int32sb.parse(Int32sb.build((session_key & left_mask) >> 16))
+    #key = Int32sb.parse(Int32sb.build(session_key & right_mask))
+    
+    #format = Struct(
+    #    "packet_type" / Int8ub,
+    #    "flags" / Int8ub,
+    #    "session_key" / Int16sn,
+    #)
+    #result = format.parse(stream)
 
 localIP     = "0.0.0.0"
 localPort   = 20001
@@ -265,10 +314,8 @@ def serve_udp_forever(udp_socket):
         while True:
             message_from_client = udp_socket.recvfrom(bufferSize)  
             ip_address = message_from_client[1]
-
-            print(message_from_client)
             
-            message_to_client = process_message_from_client(message_from_client, sessions)    
+            message_to_client = process_message_from_client(ip_address, message_from_client, sessions)    
 
             if message_to_client != None:
                 udp_socket.sendto(message_to_client, ip_address)
